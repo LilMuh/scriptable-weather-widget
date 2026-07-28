@@ -7,8 +7,11 @@
 //  （引导脚本装好后会自己更新自己，所以这一行一辈子只需要跑一次。）
 // ============================================================================
 
+//  手机上直接打开 1.js 的 raw 地址「全选 → 拷贝」更方便，那个文件里只有这一行：
+//  raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/1.js
+
 // ↓↓↓ 复制这一行 ↓↓↓
-let fm;try{fm=FileManager.iCloud();fm.documentsDirectory()}catch(e){fm=FileManager.local()}fm.writeString(fm.joinPath(fm.documentsDirectory(),"Weather.js"),await new Request("https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js").loadString());
+let fm;try{fm=FileManager.iCloud();fm.documentsDirectory()}catch(e){fm=FileManager.local()}fm.writeString(fm.joinPath(fm.documentsDirectory(),"Weather.js"),await new Request("https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js").loadString());let a=new Alert();a.title="Weather 已安装";a.message="回到脚本列表就能看到";a.addAction("好");await a.present();
 // ↑↑↑ 复制这一行 ↑↑↑
 
 

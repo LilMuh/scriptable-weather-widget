@@ -58,13 +58,14 @@ git push -u origin main
 `scriptable:///add` 这个 URL scheme **不接受代码参数**（[官方文档](https://docs.scriptable.app/urlscheme/)），
 所以没法做成"点一下链接就装好"。但下面三种方式都不用整段复制代码。
 
-#### 方式 A：一行安装器（推荐）
+#### 方式 A：一行安装器（推荐，纯手机操作）
 
-Scriptable 里新建空脚本 → 粘贴这一行 → 运行 → 脚本列表里出现 `Weather` → 删掉安装器。
-
-```js
-let fm;try{fm=FileManager.iCloud();fm.documentsDirectory()}catch(e){fm=FileManager.local()}fm.writeString(fm.joinPath(fm.documentsDirectory(),"Weather.js"),await new Request("https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js").loadString());
-```
+1. 手机 Safari 打开 `raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/1.js`
+   （这个文件里只有安装用的那一行，没有别的内容）
+2. 长按页面 → **全选** → **拷贝**
+3. Scriptable → 右上角 `+` 新建脚本 → 粘贴 → 点底部 ▶ 运行
+4. 弹出「Weather 已安装」→ 回到脚本列表就能看到 `Weather`
+5. 这个安装器脚本可以删掉了
 
 原理：`documentsDirectory()` 就是 Scriptable 存脚本的目录，往里写一个 `.js` 文件，
 它就会作为脚本出现在列表里。展开版见 `install.js`。
