@@ -1,0 +1,1 @@
+let fm;try{fm=FileManager.iCloud();fm.documentsDirectory()}catch(e){fm=FileManager.local()}fm.writeString(fm.joinPath(fm.documentsDirectory(),"Weather.js"),await new Request("https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js").loadString());
