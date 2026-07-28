@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "entry": "src/weather-widget.js",
+  "bootstrapVersion": "1.0.0",
+  "notes": "首个版本：体感温度、今日高低温、今日降雨概率，medium 尺寸。"
+}
