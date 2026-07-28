@@ -9,7 +9,7 @@
 //  显示内容：当前温度 / 体感温度 / 今日最高最低温 / 今日降雨概率
 // ============================================================================
 
-const CORE_VERSION = "1.0.0";
+const CORE_VERSION = "1.1.0";
 
 // --- 可调参数 ---------------------------------------------------------------
 const REFRESH_MINUTES = 30;      // 建议系统多久刷新一次
@@ -237,7 +237,7 @@ function fmtClock(date) {
 // 组装组件
 // ---------------------------------------------------------------------------
 function render(ctx) {
-  const { place, weather, isStale, bootstrapOutdated } = ctx;
+  const { place, weather, isStale, notice } = ctx;
   const cond = describeWeather(weather.code, weather.isDay);
 
   const w = new ListWidget();
@@ -301,9 +301,9 @@ function render(ctx) {
   addMetricRow(right, "arrow.up.arrow.down", `${fmtTemp(weather.tempMax)} / ${fmtTemp(weather.tempMin)}`);
   addMetricRow(right, "umbrella.fill", `降雨 ${fmtPercent(weather.rainChance)}`);
 
-  if (bootstrapOutdated) {
+  if (notice) {
     w.addSpacer(4);
-    const note = w.addText("引导脚本有新版本，建议重新复制一次");
+    const note = w.addText(notice);
     note.font = Font.systemFont(9);
     note.textColor = new Color("#FFD86B", 0.9);
     note.lineLimit = 1;
@@ -316,7 +316,7 @@ function render(ctx) {
 // 入口：由 bootstrap 调用
 // ---------------------------------------------------------------------------
 async function buildWidget(opts) {
-  const { fileManager, cacheDir, bootstrapOutdated } = opts;
+  const { fileManager, cacheDir, notice } = opts;
   const store = makeStore(fileManager, cacheDir);
 
   const place = await resolveLocation(store);
@@ -338,7 +338,7 @@ async function buildWidget(opts) {
     isStale = true;
   }
 
-  return render({ place, weather, isStale, bootstrapOutdated });
+  return render({ place, weather, isStale, notice });
 }
 
 module.exports = { buildWidget, CORE_VERSION };

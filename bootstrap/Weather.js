@@ -4,21 +4,25 @@
 // ============================================================================
 //  Weather Widget · 引导脚本 (bootstrap)
 // ============================================================================
-//  这是唯一需要手动复制进 Scriptable 的文件。
-//  它只做三件事：
+//  装进 Scriptable 之后就不用再碰这个文件了。它做四件事：
 //    1. 从 GitHub 读 version.json，比对本地已安装版本
 //    2. 版本更新了就下载最新的核心脚本，缓存到本地
-//    3. 加载本地缓存的核心脚本并运行
+//    3. 如果连引导脚本自己也有新版，覆盖 module.filename 实现自更新
+//    4. 加载本地缓存的核心脚本并运行
 //
 //  以后改功能只要 push 到 GitHub 并把 version.json 的 version 加一位，
-//  手机上的组件下次刷新就会自己更新，不用再碰这个文件。
+//  手机上的组件下次刷新就会自己更新。
 // ============================================================================
+
+// @scriptable-weather-bootstrap  ← 自更新时用来校验下载内容的哨兵，别删
 
 const GITHUB_USER   = "LilMuh";
 const GITHUB_REPO   = "scriptable-weather-widget";
 const GITHUB_BRANCH = "main";
 
-const BOOTSTRAP_VERSION = "1.0.0";
+const BOOTSTRAP_VERSION = "1.1.0";
+const BOOTSTRAP_PATH_IN_REPO = "bootstrap/Weather.js";
+const BOOTSTRAP_SENTINEL = "@scriptable-weather-bootstrap";
 
 // 本地缓存目录名（放在 Scriptable 文档目录下）
 const CACHE_DIR_NAME = "weather-widget";
@@ -150,6 +154,39 @@ async function syncCore() {
   return result;
 }
 
+/**
+ * 引导脚本自更新：把最新版写回本脚本自己的文件，下次运行生效。
+ *
+ * module.filename 是当前脚本的绝对路径，所以不管用户把脚本命名成什么、
+ * 放在 iCloud 还是本地，都能定位到正确的文件。
+ *
+ * 写入前必须通过三重校验，宁可不更新也不能把自己写坏：
+ *   - 内容里含哨兵注释（确认下载到的确实是引导脚本，不是 404 页面）
+ *   - 长度合理
+ *   - 含关键调用 Script.setWidget
+ *
+ * @returns {string|null} 给组件显示的提示文案；无事发生返回 null
+ */
+async function selfUpdateBootstrap() {
+  let code;
+  try {
+    code = await fetchText(BOOTSTRAP_PATH_IN_REPO, 15);
+  } catch (e) {
+    return "引导脚本有新版，下载失败";
+  }
+
+  if (!code.includes(BOOTSTRAP_SENTINEL) || code.length < 2000 || !code.includes("Script.setWidget")) {
+    return "引导脚本有新版，内容校验未通过";
+  }
+
+  try {
+    fm.writeString(module.filename, code);
+    return "引导脚本已更新，下次刷新生效";
+  } catch (e) {
+    return "引导脚本有新版，写入失败";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 出错时的兜底组件
 // ---------------------------------------------------------------------------
@@ -171,7 +208,7 @@ function buildErrorWidget(message) {
 
   w.addSpacer(4);
 
-  const hint = w.addText("检查脚本顶部的 GITHUB_USER / GITHUB_REPO 是否填对");
+  const hint = w.addText("确认仓库是 public，且网络可访问 raw.githubusercontent.com");
   hint.font = Font.systemFont(10);
   hint.textColor = new Color("#ffffff", 0.45);
 
@@ -185,6 +222,8 @@ async function main() {
   const sync = await syncCore();
 
   if (sync.error) return buildErrorWidget(sync.error);
+
+  const notice = sync.bootstrapOutdated ? await selfUpdateBootstrap() : null;
 
   let core;
   try {
@@ -200,7 +239,7 @@ async function main() {
       fileManager: fm,
       cacheDir,
       version: sync.version,
-      bootstrapOutdated: sync.bootstrapOutdated,
+      notice,
     });
   } catch (e) {
     return buildErrorWidget(`运行出错：${e.message}`);

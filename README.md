@@ -16,8 +16,9 @@ iOS [Scriptable](https://scriptable.app) 天气小组件，中号尺寸，显示
 ```
 scriptable-weather-widget/
 ├── version.json            # 版本清单，手机端靠它判断要不要更新
+├── install.js              # 一行安装器（只在第一次装的时候用）
 ├── bootstrap/
-│   └── Weather.js          # 唯一需要手动复制进 Scriptable 的文件
+│   └── Weather.js          # 装进 Scriptable 的脚本，之后会自己更新自己
 └── src/
     └── weather-widget.js   # 核心逻辑，由 bootstrap 自动下载
 ```
@@ -26,9 +27,9 @@ scriptable-weather-widget/
 
 | 文件 | 谁来读 | 什么时候改 |
 |---|---|---|
-| `bootstrap/Weather.js` | 手机上手动装一次 | 几乎不用改（改了要重新复制到手机） |
+| `bootstrap/Weather.js` | 手机装一次，之后自更新 | 很少改；改了把 `bootstrapVersion` 加一位 |
 | `src/weather-widget.js` | 手机自动下载 | 日常改功能都改这里 |
-| `version.json` | 手机每次运行都读 | 每次改完核心脚本，把 `version` 加一位 |
+| `version.json` | 手机每次运行都读 | 每次改完脚本，把对应版本号加一位 |
 
 ---
 
@@ -49,24 +50,44 @@ git remote add origin https://github.com/<你的用户名>/scriptable-weather-wi
 git push -u origin main
 ```
 
-### 2. 改配置
+> 如果 fork 或换了仓库地址，记得同步改 `bootstrap/Weather.js` 顶部的
+> `GITHUB_USER` / `GITHUB_REPO` / `GITHUB_BRANCH`，以及 `install.js` 里的 URL。
 
-打开 `bootstrap/Weather.js`，把顶部三个常量改成你自己的：
+### 2. 装到手机（三选一）
+
+`scriptable:///add` 这个 URL scheme **不接受代码参数**（[官方文档](https://docs.scriptable.app/urlscheme/)），
+所以没法做成"点一下链接就装好"。但下面三种方式都不用整段复制代码。
+
+#### 方式 A：一行安装器（推荐）
+
+Scriptable 里新建空脚本 → 粘贴这一行 → 运行 → 脚本列表里出现 `Weather` → 删掉安装器。
 
 ```js
-const GITHUB_USER   = "YOUR_GITHUB_USERNAME";      // ← 你的 GitHub 用户名
-const GITHUB_REPO   = "scriptable-weather-widget"; // ← 仓库名
-const GITHUB_BRANCH = "main";                      // ← 分支名
+let fm;try{fm=FileManager.iCloud();fm.documentsDirectory()}catch(e){fm=FileManager.local()}fm.writeString(fm.joinPath(fm.documentsDirectory(),"Weather.js"),await new Request("https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js").loadString());
 ```
 
-### 3. 装到手机
+原理：`documentsDirectory()` 就是 Scriptable 存脚本的目录，往里写一个 `.js` 文件，
+它就会作为脚本出现在列表里。展开版见 `install.js`。
 
-1. iPhone 上安装 Scriptable
-2. 新建脚本，命名为 `Weather`
-3. 把改好的 `bootstrap/Weather.js` 全部内容粘贴进去
-4. 在 Scriptable 里先**手动运行一次**（重要：这一步会弹定位权限，必须允许）
-5. 回到桌面 → 长按 → 添加小组件 → Scriptable → **中号（Medium）**
-6. 长按新加的组件 → 编辑小组件 → Script 选 `Weather`
+#### 方式 B：从"文件"App 拖进去（完全不碰代码）
+
+需要 Scriptable 开了 iCloud 同步。
+
+- **在电脑上**（装了 iCloud for Windows）：把 `bootstrap/Weather.js` 直接复制到
+  `iCloud Drive\Scriptable\`，文件名保持 `Weather.js`，同步完手机上就有了。
+- **在手机上**：Safari 打开
+  [raw 链接](https://raw.githubusercontent.com/LilMuh/scriptable-weather-widget/main/bootstrap/Weather.js)
+  → 分享 → 存储到"文件" → 移动到 iCloud Drive/Scriptable/。
+
+#### 方式 C：手动复制粘贴
+
+新建脚本命名 `Weather`，把 `bootstrap/Weather.js` 内容整个贴进去。
+
+### 3. 授权并添加组件
+
+1. 在 Scriptable 里**手动运行一次** `Weather`（重要：这一步会弹定位权限，必须允许）
+2. 回到桌面 → 长按 → 添加小组件 → Scriptable → **中号（Medium）**
+3. 长按新加的组件 → 编辑小组件 → Script 选 `Weather`
 
 ---
 
@@ -89,8 +110,17 @@ const GITHUB_BRANCH = "main";                      // ← 分支名
 > 但偶尔仍可能慢几分钟才生效，属正常现象。
 
 如果改的是 `bootstrap/Weather.js` 本身（这种情况很少），把 `bootstrapVersion` 也加一位。
-手机端检测到后会在组件底部显示一行黄色提示，提醒你重新复制一次引导脚本——
-脚本没法安全地覆盖自己，这一步只能手动。
+手机端检测到后会**自动下载并覆盖脚本自己**，下次刷新生效，同样不用手动操作。
+
+引导脚本靠 [`module.filename`](https://docs.scriptable.app/module/)（当前脚本的绝对路径）
+定位自己的文件，所以你把脚本改名、或放在 iCloud / 本地都不影响。
+写入前有三重校验，任何一项不过就放弃更新、保持原样：
+
+- 内容含哨兵注释 `@scriptable-weather-bootstrap`（确认下载到的是引导脚本，不是 404 页面）
+- 长度大于 2000 字节
+- 含关键调用 `Script.setWidget`
+
+校验没过或下载失败时，组件底部会显示一行黄色提示说明原因。
 
 ---
 
@@ -103,6 +133,8 @@ const GITHUB_BRANCH = "main";                      // ← 分支名
    │     ├─ GET version.json          ← 失败则跳过更新，直接用本地缓存
    │     ├─ 远端 version > 本地？
    │     │     └─ 是 → GET src/weather-widget.js → 写入本地 core.js
+   │     ├─ 远端 bootstrapVersion > 本地？
+   │     │     └─ 是 → GET bootstrap/Weather.js → 校验 → 覆盖 module.filename
    │     └─ importModule(core.js)
    │
    └─ core.buildWidget()
@@ -127,6 +159,7 @@ const GITHUB_BRANCH = "main";                      // ← 分支名
 
 - **拉不到 `version.json`** → 跳过更新，用本地已有的核心脚本
 - **下载新版核心脚本失败** → `meta.json` 不动，下次继续尝试，本次用旧版
+- **引导脚本自更新校验不过** → 不写入，保持当前可用版本，组件上提示原因
 - **GPS 定位失败或超时（6 秒）** → 用 `location.json` 里上次的坐标
 - **反地理编码失败** → 沿用缓存的城市名
 - **天气接口失败** → 用 3 小时内的缓存数据，时间戳前面加个 `·` 标记数据不是最新的
@@ -184,7 +217,8 @@ async function resolveLocation(store) {
 
 | 现象 | 原因 |
 |---|---|
-| 显示「无法连接 GitHub」 | `GITHUB_USER` / `GITHUB_REPO` 写错，或仓库不是 public |
+| 显示「无法连接 GitHub」 | 仓库不是 public，或网络访问不了 `raw.githubusercontent.com` |
+| 一行安装器跑完没看到脚本 | 退出再进 Scriptable 刷新列表；iCloud 同步可能要等几秒 |
 | 显示「定位失败」 | 没在 Scriptable 里手动运行过，定位权限没给。设置 → Scriptable → 位置 → 使用 App 期间 |
 | 组件一直是旧的 | `version.json` 的 `version` 忘了加；或 CDN 缓存还没过（等几分钟） |
 | 时间戳前面有个 `·` | 天气接口这次没拉到，显示的是缓存数据 |
