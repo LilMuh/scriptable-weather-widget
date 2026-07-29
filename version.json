@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "entry": "src/weather-widget.js",
   "bootstrapVersion": "1.1.0",
-  "notes": "引导脚本支持自更新（写回 module.filename）；新增一行安装器。"
+  "notes": "组件下半部分新增 24 小时温度 + 降雨概率双色带时间轴，高低用颜色深浅表达，带 now 三角指针。"
 }
