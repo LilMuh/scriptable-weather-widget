@@ -115,6 +115,69 @@ function parseWeather(data) {
   };
 }
 
+/** 当前时刻在 location 本地一天中的位置，0..24 的小数（不依赖设备时区） */
+function currentDayFraction(nowMs, utcOffsetSeconds) {
+  const localSec = (((nowMs / 1000 + utcOffsetSeconds) % 86400) + 86400) % 86400;
+  return localSec / 3600;
+}
+
+/** 返回把温度按当天 min/max 映射到 [0,1] 的函数；等值时走中线防除零 */
+function tempFrac(temps) {
+  const min = Math.min.apply(null, temps);
+  const max = Math.max.apply(null, temps);
+  const span = max - min;
+  return function (v) {
+    return span === 0 ? 0.5 : (v - min) / span;
+  };
+}
+
+/** 把一组值铺满画布宽度，纵向按 fracFn 映射（0 在底、1 在顶），越界钳制 */
+function chartPoints(values, fracFn, W, H, padY) {
+  const n = values.length;
+  const usable = H - 2 * padY;
+  return values.map(function (v, i) {
+    const x = n <= 1 ? 0 : (i / (n - 1)) * W;
+    let f = fracFn(v, i);
+    if (f < 0) f = 0;
+    else if (f > 1) f = 1;
+    return { x: x, y: H - padY - f * usable };
+  });
+}
+
+/** Catmull-Rom（α=0.5）转三次贝塞尔，端点用重复端点 */
+function catmullRomToBezier(points) {
+  const segs = [];
+  const n = points.length;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || points[i + 1];
+    segs.push({
+      p1: p1,
+      c1: { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 },
+      c2: { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 },
+      p2: p2,
+    });
+  }
+  return segs;
+}
+
+/** 在折线的小数下标 idx 处线性插值取点（now 标记用） */
+function valueAtIndex(points, idx) {
+  const n = points.length;
+  let c = idx;
+  if (c < 0) c = 0;
+  else if (c > n - 1) c = n - 1;
+  const lo = Math.floor(c);
+  const hi = Math.min(n - 1, lo + 1);
+  const t = c - lo;
+  return {
+    x: points[lo].x + (points[hi].x - points[lo].x) * t,
+    y: points[lo].y + (points[hi].y - points[lo].y) * t,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 位置
 // ---------------------------------------------------------------------------
@@ -388,4 +451,15 @@ async function buildWidget(opts) {
   return render({ place, weather, isStale, notice });
 }
 
-module.exports = { buildWidget, CORE_VERSION, fillNullsLinear, extractHourly, parseWeather };
+module.exports = {
+  buildWidget,
+  CORE_VERSION,
+  fillNullsLinear,
+  extractHourly,
+  parseWeather,
+  currentDayFraction,
+  tempFrac,
+  chartPoints,
+  catmullRomToBezier,
+  valueAtIndex,
+};
