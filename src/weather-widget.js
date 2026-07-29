@@ -81,6 +81,19 @@ function fillNullsLinear(arr) {
   return out;
 }
 
+/** 从 Open-Meteo 响应里取出当天 24 小时的温度 / 降雨概率 */
+function extractHourly(data) {
+  const h = (data && data.hourly) || {};
+  const temps = (h.temperature_2m || []).slice(0, 24);
+  const probs = (h.precipitation_probability || []).slice(0, 24);
+  return {
+    hourlyTemp: fillNullsLinear(temps),
+    hourlyProb: probs.map((v) => (v == null ? 0 : v)),
+    utcOffsetSeconds:
+      typeof (data && data.utc_offset_seconds) === "number" ? data.utc_offset_seconds : 0,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 位置
 // ---------------------------------------------------------------------------
@@ -367,4 +380,4 @@ async function buildWidget(opts) {
   return render({ place, weather, isStale, notice });
 }
 
-module.exports = { buildWidget, CORE_VERSION, fillNullsLinear };
+module.exports = { buildWidget, CORE_VERSION, fillNullsLinear, extractHourly };
