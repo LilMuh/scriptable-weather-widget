@@ -36,3 +36,27 @@ test("extractHourly 缺 utc_offset 时为 0", () => {
   const r = w.extractHourly({ hourly: { temperature_2m: [1], precipitation_probability: [1] } });
   assert.equal(r.utcOffsetSeconds, 0);
 });
+
+test("parseWeather 组装 weather 对象含小时数组", () => {
+  const data = {
+    utc_offset_seconds: 0,
+    current: { temperature_2m: 20, apparent_temperature: 19, weather_code: 2, is_day: 1 },
+    daily: { temperature_2m_max: [26], temperature_2m_min: [18], precipitation_probability_max: [46] },
+    hourly: {
+      temperature_2m: Array(24).fill(20),
+      precipitation_probability: Array(24).fill(30),
+    },
+  };
+  const wx = w.parseWeather(data);
+  assert.equal(wx.temp, 20);
+  assert.equal(wx.tempMax, 26);
+  assert.equal(wx.rainChance, 46);
+  assert.equal(wx.isDay, true);
+  assert.equal(wx.hourlyTemp.length, 24);
+  assert.equal(wx.hourlyProb.length, 24);
+  assert.equal(wx.utcOffsetSeconds, 0);
+});
+
+test("parseWeather 缺字段抛错", () => {
+  assert.throws(() => w.parseWeather({ current: {}, daily: {} }));  // 无 hourly
+});

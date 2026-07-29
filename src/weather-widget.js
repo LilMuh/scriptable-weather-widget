@@ -94,6 +94,27 @@ function extractHourly(data) {
   };
 }
 
+/** 把 Open-Meteo 响应转成组件用的 weather 对象（纯函数，便于测） */
+function parseWeather(data) {
+  if (!data || !data.current || !data.daily || !data.hourly) {
+    throw new Error("天气接口返回格式异常");
+  }
+  const { hourlyTemp, hourlyProb, utcOffsetSeconds } = extractHourly(data);
+  return {
+    temp: data.current.temperature_2m,
+    feelsLike: data.current.apparent_temperature,
+    code: data.current.weather_code,
+    isDay: data.current.is_day === 1,
+    tempMax: data.daily.temperature_2m_max[0],
+    tempMin: data.daily.temperature_2m_min[0],
+    rainChance: data.daily.precipitation_probability_max[0],
+    hourlyTemp,
+    hourlyProb,
+    utcOffsetSeconds,
+    fetchedAt: Date.now(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 位置
 // ---------------------------------------------------------------------------
@@ -146,6 +167,7 @@ async function fetchWeather(lat, lon) {
     `longitude=${lon.toFixed(4)}`,
     "current=temperature_2m,apparent_temperature,weather_code,is_day",
     "daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+    "hourly=precipitation_probability,temperature_2m",
     "timezone=auto",
     "forecast_days=1",
   ].join("&");
@@ -153,21 +175,7 @@ async function fetchWeather(lat, lon) {
   const req = new Request(`https://api.open-meteo.com/v1/forecast?${params}`);
   req.timeoutInterval = 12;
   const data = await req.loadJSON();
-
-  if (!data || !data.current || !data.daily) {
-    throw new Error("天气接口返回格式异常");
-  }
-
-  return {
-    temp: data.current.temperature_2m,
-    feelsLike: data.current.apparent_temperature,
-    code: data.current.weather_code,
-    isDay: data.current.is_day === 1,
-    tempMax: data.daily.temperature_2m_max[0],
-    tempMin: data.daily.temperature_2m_min[0],
-    rainChance: data.daily.precipitation_probability_max[0],
-    fetchedAt: Date.now(),
-  };
+  return parseWeather(data);
 }
 
 // ---------------------------------------------------------------------------
@@ -380,4 +388,4 @@ async function buildWidget(opts) {
   return render({ place, weather, isStale, notice });
 }
 
-module.exports = { buildWidget, CORE_VERSION, fillNullsLinear, extractHourly };
+module.exports = { buildWidget, CORE_VERSION, fillNullsLinear, extractHourly, parseWeather };
