@@ -81,35 +81,40 @@ test("tempFrac 按 min/max 归一化", () => {
   assert.equal(w.tempFrac([5, 5, 5])(5), 0.5);  // 等值防除零
 });
 
-test("chartPoints 映射与钳制", () => {
-  const pts = w.chartPoints([0, 50, 100], (v) => v / 100, 100, 10, 0);
-  assert.deepEqual(pts, [
-    { x: 0, y: 10 },
-    { x: 50, y: 5 },
-    { x: 100, y: 0 },
-  ]);
-  // 概率>100 被钳到 1（y=0），<0 钳到 0（y=H）
-  const c = w.chartPoints([200, -5], (v) => v / 100, 100, 10, 0);
-  assert.equal(c[0].y, 0);
-  assert.equal(c[1].y, 10);
+test("sampleAt 小数下标线性插值与钳制", () => {
+  const v = [10, 20, 30];
+  assert.equal(w.sampleAt(v, 0), 10);
+  assert.equal(w.sampleAt(v, 0.5), 15);
+  assert.equal(w.sampleAt(v, 1.75), 27.5);
+  assert.equal(w.sampleAt(v, 9), 30);    // 上钳
+  assert.equal(w.sampleAt(v, -3), 10);   // 下钳
 });
 
-test("catmullRomToBezier 共线水平点控制点", () => {
-  const pts = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }];
-  const segs = w.catmullRomToBezier(pts);
-  assert.equal(segs.length, 3);
-  // 第0段: p0=p1=(0,0), p2=(1,0), p3=(2,0)
-  assert.ok(Math.abs(segs[0].c1.x - 1 / 6) < 1e-9);
-  assert.ok(Math.abs(segs[0].c2.x - 2 / 3) < 1e-9);
-  assert.equal(segs[0].c1.y, 0);
-  assert.equal(segs[0].c2.y, 0);
-  assert.deepEqual(segs[0].p2, { x: 1, y: 0 });
+test("lerpHex 两色之间插值", () => {
+  assert.equal(w.lerpHex("#000000", "#FFFFFF", 0), "#000000");
+  assert.equal(w.lerpHex("#000000", "#FFFFFF", 1), "#ffffff");
+  assert.equal(w.lerpHex("#000000", "#FFFFFF", 0.5), "#808080");
+  assert.equal(w.lerpHex("#FF0000", "#00FF00", 0.5), "#808000");
+  assert.equal(w.lerpHex("#000000", "#FFFFFF", 5), "#ffffff");   // 上钳
+  assert.equal(w.lerpHex("#000000", "#FFFFFF", -5), "#000000");  // 下钳
 });
 
-test("valueAtIndex 线性插值与钳制", () => {
-  const pts = [{ x: 0, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 20 }];
-  assert.deepEqual(w.valueAtIndex(pts, 0.5), { x: 5, y: 5 });
-  assert.deepEqual(w.valueAtIndex(pts, 1.5), { x: 15, y: 15 });
-  assert.deepEqual(w.valueAtIndex(pts, 5), { x: 20, y: 20 });   // 上钳
-  assert.deepEqual(w.valueAtIndex(pts, -1), { x: 0, y: 0 });    // 下钳
+test("barCells 铺满宽度且下标落在 0..count-1", () => {
+  const cells = w.barCells(24, 320, 1);
+  assert.equal(cells.length, 320);
+  assert.equal(cells[0].x, 0);
+  assert.equal(cells[cells.length - 1].x + cells[cells.length - 1].w, 320);  // 无缝铺满
+  assert.ok(cells[0].pos >= 0);
+  assert.ok(cells[cells.length - 1].pos <= 23);
+  // 步长除不尽时，最后一格收窄，不越界
+  const odd = w.barCells(24, 10, 3);
+  assert.equal(odd[odd.length - 1].x + odd[odd.length - 1].w, 10);
+});
+
+test("posToX 下标映射到像素并钳制", () => {
+  assert.equal(w.posToX(0, 24, 320), 0);
+  assert.equal(w.posToX(23, 24, 320), 320);
+  assert.ok(Math.abs(w.posToX(11.5, 24, 320) - 160) < 1e-9);
+  assert.equal(w.posToX(30, 24, 320), 320);   // 上钳（23:00 之后压在右缘）
+  assert.equal(w.posToX(-1, 24, 320), 0);     // 下钳
 });

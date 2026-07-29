@@ -16,13 +16,21 @@ const REFRESH_MINUTES = 30;      // 建议系统多久刷新一次
 const STALE_HOURS = 3;           // 缓存数据超过这个时长就视为过期
 const GPS_TIMEOUT_MS = 6000;     // 定位超时，超时后用上次的坐标
 
-// --- 曲线时间轴参数 ---------------------------------------------------------
-const CHART_W = 320;             // 曲线画布宽（点）；若某机型裁切，调这个
-const CHART_H = 46;              // 曲线画布高（点）
-const CHART_PAD_Y = 5;           // 上下留白
-const CHART_LINE_W = 1.5;        // 线宽
-const COLOR_TEMP_LINE = "#FFC24B";
-const COLOR_RAIN_LINE = "#FFFFFF";
+// --- 色带时间轴参数 ---------------------------------------------------------
+//  两条平直色带，高低不靠起伏、靠颜色深浅表达。
+const CHART_W = 320;             // 画布宽（点）；若某机型裁切，调这个
+const BAR_H = 7;                 // 每条色带的高度
+const BAR_GAP = 7;               // 两条之间的间距
+const CHART_H = BAR_H * 2 + BAR_GAP;
+const CHART_STEP = 1;            // 取样步长（点），越小颜色过渡越细腻
+
+const COLOR_TEMP_COLD = "#FFF0C9";   // 当天最低温：浅
+const COLOR_TEMP_HOT  = "#FF8A2B";   // 当天最高温：深
+const COLOR_RAIN      = "#FFFFFF";   // 降雨用白色，靠透明度表达概率
+const RAIN_ALPHA_MIN  = 0.10;        // 0% 时几乎看不见
+const RAIN_ALPHA_MAX  = 1.0;         // 100% 时纯白
+const TRACK_ALPHA     = 0.10;        // 色带底槽，空数据时也看得出条带在哪
+const NOW_ALPHA       = 0.55;        // now 竖线
 
 // ---------------------------------------------------------------------------
 // WMO 天气代码 → 中文描述 + SF Symbol
@@ -139,51 +147,51 @@ function tempFrac(temps) {
   };
 }
 
-/** 把一组值铺满画布宽度，纵向按 fracFn 映射（0 在底、1 在顶），越界钳制 */
-function chartPoints(values, fracFn, W, H, padY) {
+function clamp01(v) {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** 在小数下标 pos 处对序列线性插值取值；pos 钳到 [0, n-1] */
+function sampleAt(values, pos) {
   const n = values.length;
-  const usable = H - 2 * padY;
-  return values.map(function (v, i) {
-    const x = n <= 1 ? 0 : (i / (n - 1)) * W;
-    let f = fracFn(v, i);
-    if (f < 0) f = 0;
-    else if (f > 1) f = 1;
-    return { x: x, y: H - padY - f * usable };
-  });
-}
-
-/** Catmull-Rom（α=0.5）转三次贝塞尔，端点用重复端点 */
-function catmullRomToBezier(points) {
-  const segs = [];
-  const n = points.length;
-  for (let i = 0; i < n - 1; i++) {
-    const p0 = points[i - 1] || points[i];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2] || points[i + 1];
-    segs.push({
-      p1: p1,
-      c1: { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 },
-      c2: { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 },
-      p2: p2,
-    });
-  }
-  return segs;
-}
-
-/** 在折线的小数下标 idx 处线性插值取点（now 标记用） */
-function valueAtIndex(points, idx) {
-  const n = points.length;
-  let c = idx;
+  let c = pos;
   if (c < 0) c = 0;
   else if (c > n - 1) c = n - 1;
   const lo = Math.floor(c);
   const hi = Math.min(n - 1, lo + 1);
-  const t = c - lo;
-  return {
-    x: points[lo].x + (points[hi].x - points[lo].x) * t,
-    y: points[lo].y + (points[hi].y - points[lo].y) * t,
+  return values[lo] + (values[hi] - values[lo]) * (c - lo);
+}
+
+/** 两个 #rrggbb 之间线性插值，t 钳到 [0,1] */
+function lerpHex(a, b, t) {
+  const k = clamp01(t);
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const mix = (shift) => {
+    const ca = (pa >> shift) & 255;
+    const cb = (pb >> shift) & 255;
+    return Math.round(ca + (cb - ca) * k);
   };
+  const hex = ((mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).padStart(6, "0");
+  return "#" + hex;
+}
+
+/**
+ * 把画布宽度切成一排小格，每格带上它在序列里的（小数）下标。
+ * 逐格填色就得到一条颜色连续变化的色带。
+ */
+function barCells(count, W, step) {
+  const cells = [];
+  for (let x = 0; x < W; x += step) {
+    const cw = Math.min(step, W - x);
+    cells.push({ x: x, w: cw, pos: ((x + cw / 2) / W) * (count - 1) });
+  }
+  return cells;
+}
+
+/** 序列下标 → 画布横坐标，越界钳到两端 */
+function posToX(pos, count, W) {
+  return clamp01(pos / (count - 1)) * W;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,63 +302,47 @@ function applyBackground(widget, isDay) {
   widget.backgroundGradient = g;
 }
 
-/** 沿一组点描一条 Catmull-Rom 平滑曲线 */
-function strokeCurve(ctx, points, color, lineWidth) {
-  const segs = catmullRomToBezier(points);
-  const path = new Path();
-  path.move(new Point(points[0].x, points[0].y));
-  for (const s of segs) {
-    path.addCurve(
-      new Point(s.p2.x, s.p2.y),
-      new Point(s.c1.x, s.c1.y),
-      new Point(s.c2.x, s.c2.y)
-    );
+/**
+ * 画一条平直色带：先垫一层淡底槽，再逐格填色。
+ * colorFn 拿到该格插值出来的数值，返回这一格的颜色。
+ */
+function fillBar(ctx, y, values, colorFn) {
+  ctx.setFillColor(new Color(COLOR_RAIN, TRACK_ALPHA));
+  ctx.fillRect(new Rect(0, y, CHART_W, BAR_H));
+
+  for (const cell of barCells(values.length, CHART_W, CHART_STEP)) {
+    ctx.setFillColor(colorFn(sampleAt(values, cell.pos)));
+    ctx.fillRect(new Rect(cell.x, y, cell.w, BAR_H));
   }
-  ctx.setStrokeColor(color);
-  ctx.setLineWidth(lineWidth);
-  ctx.addPath(path);
-  ctx.strokePath();
 }
 
-/** 实心小圆点 */
-function fillDot(ctx, cx, cy, r, color) {
-  ctx.setFillColor(color);
-  ctx.fillEllipse(new Rect(cx - r, cy - r, r * 2, r * 2));
-}
-
-/** 画温度 + 降雨概率双细线 + now 标记，返回图片 */
+/** 画温度 + 降雨概率两条色带 + now 竖线，返回图片 */
 function buildTimelineImage(hourlyTemp, hourlyProb, nowPos) {
-  const W = CHART_W;
-  const H = CHART_H;
-  const padY = CHART_PAD_Y;
-
-  const tempPts = chartPoints(hourlyTemp, tempFrac(hourlyTemp), W, H, padY);
-  const rainPts = chartPoints(hourlyProb, (v) => v / 100, W, H, padY);
-
   const ctx = new DrawContext();
-  ctx.size = new Size(W, H);
+  ctx.size = new Size(CHART_W, CHART_H);
   ctx.opaque = false;              // 透出蓝色渐变背景
-  ctx.respectScreenScale = true;   // 按设备 scale 渲染，细线锐利
+  ctx.respectScreenScale = true;   // 按设备 scale 渲染
 
-  // 先画降雨（白，底层），再画温度（琥珀，上层）
-  strokeCurve(ctx, rainPts, new Color(COLOR_RAIN_LINE, 1), CHART_LINE_W);
-  strokeCurve(ctx, tempPts, new Color(COLOR_TEMP_LINE, 1), CHART_LINE_W);
+  // 上：温度。当天最低→最高映射成 浅奶油→深琥珀
+  const frac = tempFrac(hourlyTemp);
+  fillBar(ctx, 0, hourlyTemp, (v) =>
+    new Color(lerpHex(COLOR_TEMP_COLD, COLOR_TEMP_HOT, frac(v)), 1)
+  );
 
-  // now 竖线（淡白）
-  const nowX = Math.max(0, Math.min(W, valueAtIndex(tempPts, nowPos).x));
+  // 下：降雨概率。0→100 映射成 近乎透明→纯白
+  fillBar(ctx, BAR_H + BAR_GAP, hourlyProb, (v) =>
+    new Color(COLOR_RAIN, RAIN_ALPHA_MIN + (RAIN_ALPHA_MAX - RAIN_ALPHA_MIN) * clamp01(v / 100))
+  );
+
+  // now 竖线，贯穿两条色带
+  const nowX = posToX(nowPos, hourlyTemp.length, CHART_W);
   const line = new Path();
   line.move(new Point(nowX, 0));
-  line.addLine(new Point(nowX, H));
-  ctx.setStrokeColor(new Color(COLOR_RAIN_LINE, 0.25));
+  line.addLine(new Point(nowX, CHART_H));
+  ctx.setStrokeColor(new Color(COLOR_RAIN, NOW_ALPHA));
   ctx.setLineWidth(1);
   ctx.addPath(line);
   ctx.strokePath();
-
-  // 两条线在 now 处各一个圆点
-  const rd = valueAtIndex(rainPts, nowPos);
-  const td = valueAtIndex(tempPts, nowPos);
-  fillDot(ctx, rd.x, rd.y, 2, new Color(COLOR_RAIN_LINE, 1));
-  fillDot(ctx, td.x, td.y, 2, new Color(COLOR_TEMP_LINE, 1));
 
   return ctx.getImage();
 }
@@ -474,13 +466,13 @@ function render(ctx) {
 
   const right = body.addStack();
   right.layoutVertically();
-  right.spacing = 4;
+  right.spacing = 6;
 
   addMetricRow(right, "thermometer.medium", `体感 ${fmtTemp(weather.feelsLike)}`);
   addMetricRow(right, "arrow.up.arrow.down", `${fmtTemp(weather.tempMax)} / ${fmtTemp(weather.tempMin)}`);
   addMetricRow(right, "umbrella.fill", `降雨 ${fmtPercent(weather.rainChance)}`);
 
-  // --- 底部：温度 + 降雨概率 双细线时间轴 ---
+  // --- 底部：温度 + 降雨概率 双色带时间轴 ---
   // 旧版缓存的 weather.json 没有 hourly 数组，这里守卫一下，跳过绘制而不是崩掉
   if (
     Array.isArray(weather.hourlyTemp) && weather.hourlyTemp.length >= 2 &&
@@ -542,7 +534,8 @@ module.exports = {
   parseWeather,
   currentDayFraction,
   tempFrac,
-  chartPoints,
-  catmullRomToBezier,
-  valueAtIndex,
+  sampleAt,
+  lerpHex,
+  barCells,
+  posToX,
 };
