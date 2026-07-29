@@ -126,6 +126,47 @@ test("barCells 铺满宽度且下标落在 0..count-1", () => {
   assert.equal(odd[odd.length - 1].x + odd[odd.length - 1].w, 10);
 });
 
+test("hasRain 全 0 才算无雨", () => {
+  assert.equal(w.hasRain(Array(24).fill(0)), false);
+  assert.equal(w.hasRain([]), false);
+  assert.equal(w.hasRain(Array(24).fill(0).concat([1])), true);   // 只有 1% 也算有雨
+  assert.equal(w.hasRain([0, 0, 80, 0]), true);
+});
+
+test("chartHeight 无雨时矮一条带", () => {
+  const full = w.chartHeight(true);
+  const slim = w.chartHeight(false);
+  assert.ok(slim < full);
+  assert.equal(full - slim, 7);   // BAR_H(4) + BAR_GAP(3)
+});
+
+test("capsuleColumn 中段满高、两端按半圆收窄", () => {
+  const W = 320, H = 4;   // 半径 2
+  const mid = w.capsuleColumn(160, W, H);
+  assert.equal(mid.dy, 0);
+  assert.equal(mid.h, H);
+
+  // 距左缘 2pt 处（正好是半圆的圆心）仍是满高
+  const r0 = w.capsuleColumn(2, W, H);
+  assert.ok(Math.abs(r0.h - H) < 1e-9);
+
+  // 距左缘 1pt：半高 = sqrt(2²-1²) = √3
+  const half = w.capsuleColumn(1, W, H);
+  assert.ok(Math.abs(half.h - 2 * Math.sqrt(3)) < 1e-9);
+  assert.ok(Math.abs(half.dy - (2 - Math.sqrt(3))) < 1e-9);
+
+  // 两端顶点高度归零，且左右对称
+  assert.equal(w.capsuleColumn(0, W, H).h, 0);
+  assert.equal(w.capsuleColumn(W, W, H).h, 0);
+  assert.ok(Math.abs(w.capsuleColumn(1, W, H).h - w.capsuleColumn(W - 1, W, H).h) < 1e-9);
+
+  // 任何一列都不会超出色带高度
+  for (let x = 0; x <= W; x += 0.5) {
+    const c = w.capsuleColumn(x, W, H);
+    assert.ok(c.dy >= 0 && c.dy + c.h <= H + 1e-9);
+  }
+});
+
 test("posToX 下标映射到像素并钳制", () => {
   assert.equal(w.posToX(0, 24, 320), 0);
   assert.equal(w.posToX(23, 24, 320), 320);

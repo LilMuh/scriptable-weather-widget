@@ -20,10 +20,10 @@ const GPS_TIMEOUT_MS = 6000;     // 定位超时，超时后用上次的坐标
 //  两条平直色带，高低不靠起伏、靠颜色深浅表达。
 const CHART_W = 320;             // 画布宽（点）；若某机型裁切，调这个
 const BAR_H = 4;                 // 每条色带的高度
-const BAR_GAP = 2;               // 两条之间的间距
+const BAR_GAP = 3;               // 两条之间的间距（要容下两条黑边）
 const NOW_CAP_H = 5;             // 顶部 now 三角指针占的高度
-const CHART_H = NOW_CAP_H + BAR_H * 2 + BAR_GAP;
 const CHART_STEP = 1;            // 取样步长（点），越小颜色过渡越细腻
+// 画布高度见 chartHeight()：全天无雨时只留温度那一条
 
 // 温度色标：当天最低 → 中间 → 最高。三段拉开深浅对比
 const TEMP_RAMP = ["#FFF6DC", "#FFB03C", "#C42E00"];
@@ -31,6 +31,10 @@ const COLOR_RAIN      = "#FFFFFF";   // 降雨用白色，靠透明度表达概�
 const RAIN_ALPHA_MIN  = 0.10;        // 0% 时几乎看不见
 const RAIN_ALPHA_MAX  = 1.0;         // 100% 时纯白
 const TRACK_ALPHA     = 0.10;        // 色带底槽，空数据时也看得出条带在哪
+
+// 色带外形：胶囊（圆角半径 = 高度一半）+ 纯黑细描边
+const BAR_STROKE_W    = 0.75;
+const COLOR_BAR_EDGE  = "#000000";
 
 // now 标记：三角指针 + 贯穿竖条 + 深色描边（压在纯白色带上也分得清）
 const NOW_W       = 2.5;
@@ -156,6 +160,30 @@ function tempFrac(temps) {
 
 function clamp01(v) {
   return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** 当天是否有降雨可能；全 0 就完全不画那条带 */
+function hasRain(probs) {
+  return probs.some((v) => v > 0);
+}
+
+/**
+ * 胶囊形色带在某一列上的竖向范围（相对色带顶边）。
+ * DrawContext 没有裁剪 API，圆角端只能这么逐列收窄画出来：
+ * 距左右缘不到半径 r 的地方，按半圆 sqrt(r²-dx²) 压低这一列。
+ */
+function capsuleColumn(cx, W, h) {
+  const r = h / 2;
+  let dx = 0;
+  if (cx < r) dx = r - cx;
+  else if (cx > W - r) dx = cx - (W - r);
+  const half = dx >= r ? 0 : Math.sqrt(r * r - dx * dx);
+  return { dy: r - half, h: half * 2 };
+}
+
+/** 画布高度：无雨时省掉降雨带和中间的间距 */
+function chartHeight(showRain) {
+  return NOW_CAP_H + BAR_H + (showRain ? BAR_GAP + BAR_H : 0);
 }
 
 /** 在小数下标 pos 处对序列线性插值取值；pos 钳到 [0, n-1] */
@@ -318,24 +346,40 @@ function applyBackground(widget, isDay) {
   widget.backgroundGradient = g;
 }
 
+/** 一条色带的胶囊外形；inset 用来把描边收进色带里，免得糊出画布 */
+function barCapsulePath(y, inset) {
+  const p = new Path();
+  const r = BAR_H / 2 - inset;
+  p.addRoundedRect(new Rect(inset, y + inset, CHART_W - inset * 2, BAR_H - inset * 2), r, r);
+  return p;
+}
+
 /**
- * 画一条平直色带：先垫一层淡底槽，再逐格填色。
+ * 画一条胶囊形色带：淡底槽 → 逐格填色（两端按半圆收窄）→ 黑色细描边。
  * colorFn 拿到该格插值出来的数值，返回这一格的颜色。
  */
 function fillBar(ctx, y, values, colorFn) {
   ctx.setFillColor(new Color(COLOR_RAIN, TRACK_ALPHA));
-  ctx.fillRect(new Rect(0, y, CHART_W, BAR_H));
+  ctx.addPath(barCapsulePath(y, 0));
+  ctx.fillPath();
 
   for (const cell of barCells(values.length, CHART_W, CHART_STEP)) {
+    const col = capsuleColumn(cell.x + cell.w / 2, CHART_W, BAR_H);
+    if (col.h <= 0) continue;
     ctx.setFillColor(colorFn(sampleAt(values, cell.pos)));
-    ctx.fillRect(new Rect(cell.x, y, cell.w, BAR_H));
+    ctx.fillRect(new Rect(cell.x, y + col.dy, cell.w, col.h));
   }
+
+  // 描边压在最外圈上，正好盖掉逐列填色留下的锯齿边
+  ctx.setStrokeColor(new Color(COLOR_BAR_EDGE, 1));
+  ctx.setLineWidth(BAR_STROKE_W);
+  ctx.addPath(barCapsulePath(y, BAR_STROKE_W / 2));
+  ctx.strokePath();
 }
 
 /** now 标记：色带上方一个白三角，下面一条贯穿两带的白竖条（带深色描边） */
-function drawNowMarker(ctx, nowX) {
+function drawNowMarker(ctx, nowX, barsBottom) {
   const barsTop = NOW_CAP_H;
-  const barsBottom = CHART_H;
 
   // 深色描边：压在 100% 的纯白降雨带上也能分辨
   ctx.setFillColor(new Color(COLOR_NOW_HALO, NOW_HALO_ALPHA));
@@ -358,8 +402,11 @@ function drawNowMarker(ctx, nowX) {
 
 /** 画温度 + 降雨概率两条色带 + now 标记，返回图片 */
 function buildTimelineImage(hourlyTemp, hourlyProb, nowPos) {
+  const showRain = hasRain(hourlyProb);
+  const h = chartHeight(showRain);
+
   const ctx = new DrawContext();
-  ctx.size = new Size(CHART_W, CHART_H);
+  ctx.size = new Size(CHART_W, h);
   ctx.opaque = false;              // 透出蓝色渐变背景
   ctx.respectScreenScale = true;   // 按设备 scale 渲染
 
@@ -367,12 +414,14 @@ function buildTimelineImage(hourlyTemp, hourlyProb, nowPos) {
   const frac = tempFrac(hourlyTemp);
   fillBar(ctx, NOW_CAP_H, hourlyTemp, (v) => new Color(rampColor(TEMP_RAMP, frac(v)), 1));
 
-  // 下：降雨概率。0→100 映射成 近乎透明→纯白
-  fillBar(ctx, NOW_CAP_H + BAR_H + BAR_GAP, hourlyProb, (v) =>
-    new Color(COLOR_RAIN, RAIN_ALPHA_MIN + (RAIN_ALPHA_MAX - RAIN_ALPHA_MIN) * clamp01(v / 100))
-  );
+  // 下：降雨概率。0→100 映射成 近乎透明→纯白。全天无雨就整条不画
+  if (showRain) {
+    fillBar(ctx, NOW_CAP_H + BAR_H + BAR_GAP, hourlyProb, (v) =>
+      new Color(COLOR_RAIN, RAIN_ALPHA_MIN + (RAIN_ALPHA_MAX - RAIN_ALPHA_MIN) * clamp01(v / 100))
+    );
+  }
 
-  drawNowMarker(ctx, posToX(nowPos, hourlyTemp.length, CHART_W));
+  drawNowMarker(ctx, posToX(nowPos, hourlyTemp.length, CHART_W), h);
 
   return ctx.getImage();
 }
@@ -512,7 +561,7 @@ function render(ctx) {
     const nowPos = currentDayFraction(Date.now(), weather.utcOffsetSeconds || 0);
     const chartImg = buildTimelineImage(weather.hourlyTemp, weather.hourlyProb, nowPos);
     const imgEl = w.addImage(chartImg);
-    imgEl.imageSize = new Size(CHART_W, CHART_H);
+    imgEl.imageSize = new Size(CHART_W, chartHeight(hasRain(weather.hourlyProb)));
     imgEl.centerAlignImage();
   }
 
@@ -569,4 +618,7 @@ module.exports = {
   rampColor,
   barCells,
   posToX,
+  hasRain,
+  chartHeight,
+  capsuleColumn,
 };
