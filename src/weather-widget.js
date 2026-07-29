@@ -33,7 +33,7 @@ const RAIN_ALPHA_MAX  = 1.0;         // 100% 时纯白
 const TRACK_ALPHA     = 0.10;        // 色带底槽，空数据时也看得出条带在哪
 
 // 色带外形：胶囊（圆角半径 = 高度一半）+ 纯黑细描边
-const BAR_STROKE_W    = 0.75;
+const BAR_STROKE_W    = 1;
 const COLOR_BAR_EDGE  = "#000000";
 
 // now 标记：三角指针 + 贯穿竖条 + 深色描边（压在纯白色带上也分得清）
