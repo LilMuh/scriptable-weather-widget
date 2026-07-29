@@ -99,6 +99,21 @@ test("lerpHex 两色之间插值", () => {
   assert.equal(w.lerpHex("#000000", "#FFFFFF", -5), "#000000");  // 下钳
 });
 
+test("rampColor 多段色标", () => {
+  const two = ["#000000", "#FFFFFF"];
+  assert.equal(w.rampColor(two, 0), "#000000");
+  assert.equal(w.rampColor(two, 0.5), "#808080");
+  assert.equal(w.rampColor(two, 1), "#ffffff");
+
+  const three = ["#000000", "#FF0000", "#FFFFFF"];
+  assert.equal(w.rampColor(three, 0), "#000000");
+  assert.equal(w.rampColor(three, 0.5), "#ff0000");   // 正中落在中间那档
+  assert.equal(w.rampColor(three, 0.25), "#800000");  // 第一段的一半
+  assert.equal(w.rampColor(three, 1), "#ffffff");
+  assert.equal(w.rampColor(three, 3), "#ffffff");     // 上钳
+  assert.equal(w.rampColor(three, -3), "#000000");    // 下钳
+});
+
 test("barCells 铺满宽度且下标落在 0..count-1", () => {
   const cells = w.barCells(24, 320, 1);
   assert.equal(cells.length, 320);

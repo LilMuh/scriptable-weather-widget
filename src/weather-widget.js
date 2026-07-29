@@ -19,18 +19,25 @@ const GPS_TIMEOUT_MS = 6000;     // 定位超时，超时后用上次的坐标
 // --- 色带时间轴参数 ---------------------------------------------------------
 //  两条平直色带，高低不靠起伏、靠颜色深浅表达。
 const CHART_W = 320;             // 画布宽（点）；若某机型裁切，调这个
-const BAR_H = 7;                 // 每条色带的高度
-const BAR_GAP = 7;               // 两条之间的间距
-const CHART_H = BAR_H * 2 + BAR_GAP;
+const BAR_H = 4;                 // 每条色带的高度
+const BAR_GAP = 2;               // 两条之间的间距
+const NOW_CAP_H = 5;             // 顶部 now 三角指针占的高度
+const CHART_H = NOW_CAP_H + BAR_H * 2 + BAR_GAP;
 const CHART_STEP = 1;            // 取样步长（点），越小颜色过渡越细腻
 
-const COLOR_TEMP_COLD = "#FFF0C9";   // 当天最低温：浅
-const COLOR_TEMP_HOT  = "#FF8A2B";   // 当天最高温：深
+// 温度色标：当天最低 → 中间 → 最高。三段拉开深浅对比
+const TEMP_RAMP = ["#FFF6DC", "#FFB03C", "#C42E00"];
 const COLOR_RAIN      = "#FFFFFF";   // 降雨用白色，靠透明度表达概率
 const RAIN_ALPHA_MIN  = 0.10;        // 0% 时几乎看不见
 const RAIN_ALPHA_MAX  = 1.0;         // 100% 时纯白
 const TRACK_ALPHA     = 0.10;        // 色带底槽，空数据时也看得出条带在哪
-const NOW_ALPHA       = 0.55;        // now 竖线
+
+// now 标记：三角指针 + 贯穿竖条 + 深色描边（压在纯白色带上也分得清）
+const NOW_W       = 2.5;
+const NOW_HALO_W  = 5;
+const COLOR_NOW_HALO = "#07142A";
+const NOW_HALO_ALPHA = 0.45;
+const NOW_CAP_W   = 9;
 
 // ---------------------------------------------------------------------------
 // WMO 天气代码 → 中文描述 + SF Symbol
@@ -176,6 +183,15 @@ function lerpHex(a, b, t) {
   return "#" + hex;
 }
 
+/** 沿一串色标取色，t 钳到 [0,1]。段数越多，深浅拉得越开 */
+function rampColor(stops, t) {
+  const last = stops.length - 1;
+  if (last <= 0) return stops[0];
+  const k = clamp01(t);
+  const seg = Math.min(last - 1, Math.floor(k * last));
+  return lerpHex(stops[seg], stops[seg + 1], k * last - seg);
+}
+
 /**
  * 把画布宽度切成一排小格，每格带上它在序列里的（小数）下标。
  * 逐格填色就得到一条颜色连续变化的色带。
@@ -316,33 +332,47 @@ function fillBar(ctx, y, values, colorFn) {
   }
 }
 
-/** 画温度 + 降雨概率两条色带 + now 竖线，返回图片 */
+/** now 标记：色带上方一个白三角，下面一条贯穿两带的白竖条（带深色描边） */
+function drawNowMarker(ctx, nowX) {
+  const barsTop = NOW_CAP_H;
+  const barsBottom = CHART_H;
+
+  // 深色描边：压在 100% 的纯白降雨带上也能分辨
+  ctx.setFillColor(new Color(COLOR_NOW_HALO, NOW_HALO_ALPHA));
+  ctx.fillRect(new Rect(nowX - NOW_HALO_W / 2, barsTop, NOW_HALO_W, barsBottom - barsTop));
+
+  ctx.setFillColor(new Color(COLOR_RAIN, 1));
+  ctx.fillRect(new Rect(nowX - NOW_W / 2, barsTop, NOW_W, barsBottom - barsTop));
+
+  // 顶上的三角指针，整体贴到画布边缘时往里收，避免只画出一半
+  const half = NOW_CAP_W / 2;
+  const cx = Math.max(half, Math.min(CHART_W - half, nowX));
+  const cap = new Path();
+  cap.move(new Point(cx - half, 0));
+  cap.addLine(new Point(cx + half, 0));
+  cap.addLine(new Point(cx, NOW_CAP_H));
+  cap.addLine(new Point(cx - half, 0));
+  ctx.addPath(cap);
+  ctx.fillPath();
+}
+
+/** 画温度 + 降雨概率两条色带 + now 标记，返回图片 */
 function buildTimelineImage(hourlyTemp, hourlyProb, nowPos) {
   const ctx = new DrawContext();
   ctx.size = new Size(CHART_W, CHART_H);
   ctx.opaque = false;              // 透出蓝色渐变背景
   ctx.respectScreenScale = true;   // 按设备 scale 渲染
 
-  // 上：温度。当天最低→最高映射成 浅奶油→深琥珀
+  // 上：温度。当天最低→最高走三段色标，浅奶油→琥珀→深红
   const frac = tempFrac(hourlyTemp);
-  fillBar(ctx, 0, hourlyTemp, (v) =>
-    new Color(lerpHex(COLOR_TEMP_COLD, COLOR_TEMP_HOT, frac(v)), 1)
-  );
+  fillBar(ctx, NOW_CAP_H, hourlyTemp, (v) => new Color(rampColor(TEMP_RAMP, frac(v)), 1));
 
   // 下：降雨概率。0→100 映射成 近乎透明→纯白
-  fillBar(ctx, BAR_H + BAR_GAP, hourlyProb, (v) =>
+  fillBar(ctx, NOW_CAP_H + BAR_H + BAR_GAP, hourlyProb, (v) =>
     new Color(COLOR_RAIN, RAIN_ALPHA_MIN + (RAIN_ALPHA_MAX - RAIN_ALPHA_MIN) * clamp01(v / 100))
   );
 
-  // now 竖线，贯穿两条色带
-  const nowX = posToX(nowPos, hourlyTemp.length, CHART_W);
-  const line = new Path();
-  line.move(new Point(nowX, 0));
-  line.addLine(new Point(nowX, CHART_H));
-  ctx.setStrokeColor(new Color(COLOR_RAIN, NOW_ALPHA));
-  ctx.setLineWidth(1);
-  ctx.addPath(line);
-  ctx.strokePath();
+  drawNowMarker(ctx, posToX(nowPos, hourlyTemp.length, CHART_W));
 
   return ctx.getImage();
 }
@@ -536,6 +566,7 @@ module.exports = {
   tempFrac,
   sampleAt,
   lerpHex,
+  rampColor,
   barCells,
   posToX,
 };
