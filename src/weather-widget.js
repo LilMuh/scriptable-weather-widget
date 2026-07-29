@@ -56,6 +56,32 @@ function describeWeather(code, isDay) {
 }
 
 // ---------------------------------------------------------------------------
+// 小时序列的纯计算（无 Scriptable 依赖，便于在 Node 里测）
+// ---------------------------------------------------------------------------
+
+/** 用左右最近的非 null 值线性插值填补 null；首尾 null 取最近的非 null */
+function fillNullsLinear(arr) {
+  const n = arr.length;
+  const out = arr.slice();
+  const known = [];
+  for (let i = 0; i < n; i++) if (out[i] != null) known.push(i);
+  if (known.length === 0) return out.map(() => 0);
+  for (let i = 0; i < n; i++) {
+    if (out[i] != null) continue;
+    let left = null;
+    let right = null;
+    for (let k = 0; k < known.length; k++) {
+      if (known[k] < i) left = known[k];
+      if (known[k] > i && right === null) right = known[k];
+    }
+    if (left === null) out[i] = arr[right];
+    else if (right === null) out[i] = arr[left];
+    else out[i] = arr[left] + (arr[right] - arr[left]) * ((i - left) / (right - left));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // 位置
 // ---------------------------------------------------------------------------
 
@@ -341,4 +367,4 @@ async function buildWidget(opts) {
   return render({ place, weather, isStale, notice });
 }
 
-module.exports = { buildWidget, CORE_VERSION };
+module.exports = { buildWidget, CORE_VERSION, fillNullsLinear };
