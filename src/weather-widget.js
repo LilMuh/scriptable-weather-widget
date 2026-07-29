@@ -16,6 +16,14 @@ const REFRESH_MINUTES = 30;      // 建议系统多久刷新一次
 const STALE_HOURS = 3;           // 缓存数据超过这个时长就视为过期
 const GPS_TIMEOUT_MS = 6000;     // 定位超时，超时后用上次的坐标
 
+// --- 曲线时间轴参数 ---------------------------------------------------------
+const CHART_W = 320;             // 曲线画布宽（点）；若某机型裁切，调这个
+const CHART_H = 46;              // 曲线画布高（点）
+const CHART_PAD_Y = 5;           // 上下留白
+const CHART_LINE_W = 1.5;        // 线宽
+const COLOR_TEMP_LINE = "#FFC24B";
+const COLOR_RAIN_LINE = "#FFFFFF";
+
 // ---------------------------------------------------------------------------
 // WMO 天气代码 → 中文描述 + SF Symbol
 // ---------------------------------------------------------------------------
@@ -284,6 +292,67 @@ function applyBackground(widget, isDay) {
   g.startPoint = new Point(0, 0);
   g.endPoint = new Point(1, 1);
   widget.backgroundGradient = g;
+}
+
+/** 沿一组点描一条 Catmull-Rom 平滑曲线 */
+function strokeCurve(ctx, points, color, lineWidth) {
+  const segs = catmullRomToBezier(points);
+  const path = new Path();
+  path.move(new Point(points[0].x, points[0].y));
+  for (const s of segs) {
+    path.addCurve(
+      new Point(s.p2.x, s.p2.y),
+      new Point(s.c1.x, s.c1.y),
+      new Point(s.c2.x, s.c2.y)
+    );
+  }
+  ctx.setStrokeColor(color);
+  ctx.setLineWidth(lineWidth);
+  ctx.addPath(path);
+  ctx.strokePath();
+}
+
+/** 实心小圆点 */
+function fillDot(ctx, cx, cy, r, color) {
+  ctx.setFillColor(color);
+  ctx.fillEllipse(new Rect(cx - r, cy - r, r * 2, r * 2));
+}
+
+/** 画温度 + 降雨概率双细线 + now 标记，返回图片 */
+function buildTimelineImage(hourlyTemp, hourlyProb, nowPos) {
+  const W = CHART_W;
+  const H = CHART_H;
+  const padY = CHART_PAD_Y;
+
+  const tempPts = chartPoints(hourlyTemp, tempFrac(hourlyTemp), W, H, padY);
+  const rainPts = chartPoints(hourlyProb, (v) => v / 100, W, H, padY);
+
+  const ctx = new DrawContext();
+  ctx.size = new Size(W, H);
+  ctx.opaque = false;              // 透出蓝色渐变背景
+  ctx.respectScreenScale = true;   // 按设备 scale 渲染，细线锐利
+
+  // 先画降雨（白，底层），再画温度（琥珀，上层）
+  strokeCurve(ctx, rainPts, new Color(COLOR_RAIN_LINE, 1), CHART_LINE_W);
+  strokeCurve(ctx, tempPts, new Color(COLOR_TEMP_LINE, 1), CHART_LINE_W);
+
+  // now 竖线（淡白）
+  const nowX = Math.max(0, Math.min(W, valueAtIndex(tempPts, nowPos).x));
+  const line = new Path();
+  line.move(new Point(nowX, 0));
+  line.addLine(new Point(nowX, H));
+  ctx.setStrokeColor(new Color(COLOR_RAIN_LINE, 0.25));
+  ctx.setLineWidth(1);
+  ctx.addPath(line);
+  ctx.strokePath();
+
+  // 两条线在 now 处各一个圆点
+  const rd = valueAtIndex(rainPts, nowPos);
+  const td = valueAtIndex(tempPts, nowPos);
+  fillDot(ctx, rd.x, rd.y, 2, new Color(COLOR_RAIN_LINE, 1));
+  fillDot(ctx, td.x, td.y, 2, new Color(COLOR_TEMP_LINE, 1));
+
+  return ctx.getImage();
 }
 
 const SYMBOL_FALLBACKS = {
