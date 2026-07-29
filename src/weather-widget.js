@@ -33,7 +33,7 @@ const RAIN_ALPHA_MAX  = 1.0;         // 100% 时纯白
 const TRACK_ALPHA     = 0.10;        // 色带底槽，空数据时也看得出条带在哪
 
 // 色带外形：胶囊（圆角半径 = 高度一半）+ 纯黑细描边
-const BAR_STROKE_W    = 1.15;    // 略宽于 1pt，盖住胶囊端头逐列填色漏出的颜色
+const BAR_STROKE_W    = 0.75;
 const COLOR_BAR_EDGE  = "#000000";
 
 // now 标记：三角指针 + 贯穿竖条 + 深色描边（压在纯白色带上也分得清）
@@ -179,6 +179,17 @@ function capsuleColumn(cx, W, h) {
   else if (cx > W - r) dx = cx - (W - r);
   const half = dx >= r ? 0 : Math.sqrt(r * r - dx * dx);
   return { dy: r - half, h: half * 2 };
+}
+
+/**
+ * 一整格（宽 w）能安全落在胶囊内的竖向范围。
+ * 取列中心会让端头那几格戳出圆弧、在黑边外露一点颜色；这里取整格里最窄的
+ * 那一侧。胶囊侧影是"升→平→降"的单峰形，最小值必在两端边界上，取两者更窄的即可。
+ */
+function capsuleCell(x, w, W, h) {
+  const a = capsuleColumn(x, W, h);
+  const b = capsuleColumn(x + w, W, h);
+  return a.h <= b.h ? a : b;
 }
 
 /** 画布高度：无雨时省掉降雨带和中间的间距 */
@@ -364,7 +375,7 @@ function fillBar(ctx, y, values, colorFn) {
   ctx.fillPath();
 
   for (const cell of barCells(values.length, CHART_W, CHART_STEP)) {
-    const col = capsuleColumn(cell.x + cell.w / 2, CHART_W, BAR_H);
+    const col = capsuleCell(cell.x, cell.w, CHART_W, BAR_H);
     if (col.h <= 0) continue;
     ctx.setFillColor(colorFn(sampleAt(values, cell.pos)));
     ctx.fillRect(new Rect(cell.x, y + col.dy, cell.w, col.h));
@@ -621,4 +632,5 @@ module.exports = {
   hasRain,
   chartHeight,
   capsuleColumn,
+  capsuleCell,
 };

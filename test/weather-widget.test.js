@@ -167,6 +167,43 @@ test("capsuleColumn 中段满高、两端按半圆收窄", () => {
   }
 });
 
+test("capsuleCell 整格严格缩在胶囊轮廓内", () => {
+  const W = 320, H = 4, r = H / 2;
+  // 胶囊在 x 处允许的竖向区间
+  const allowed = (x) => {
+    let dx = 0;
+    if (x < r) dx = r - x;
+    else if (x > W - r) dx = x - (W - r);
+    const half = dx >= r ? 0 : Math.sqrt(r * r - dx * dx);
+    return [r - half, r + half];
+  };
+
+  // 中段整格满高
+  const mid = w.capsuleCell(160, 1, W, H);
+  assert.equal(mid.dy, 0);
+  assert.equal(mid.h, H);
+
+  // 最左/最右那格贴到圆弧顶点，高度归零 —— 整格都在轮廓外，直接不画
+  assert.equal(w.capsuleCell(0, 1, W, H).h, 0);
+  assert.equal(w.capsuleCell(319, 1, W, H).h, 0);
+
+  // 取列中心会漏出轮廓，取外侧边缘不会：逐格核对两侧边界
+  for (let x = 0; x < W; x += 1) {
+    const c = w.capsuleCell(x, 1, W, H);
+    if (c.h <= 0) continue;
+    for (const edge of [x, x + 1]) {
+      const [lo, hi] = allowed(edge);
+      assert.ok(c.dy >= lo - 1e-9, `x=${x} 上边漏出轮廓`);
+      assert.ok(c.dy + c.h <= hi + 1e-9, `x=${x} 下边漏出轮廓`);
+    }
+  }
+
+  // 代价可控：两端加起来最多少画 2pt 的颜色
+  let cover = 0;
+  for (let x = 0; x < W; x += 1) if (w.capsuleCell(x, 1, W, H).h > 0) cover += 1;
+  assert.ok(cover >= W - 2, `少画太多: ${cover}`);
+});
+
 test("posToX 下标映射到像素并钳制", () => {
   assert.equal(w.posToX(0, 24, 320), 0);
   assert.equal(w.posToX(23, 24, 320), 320);
