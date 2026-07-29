@@ -474,11 +474,25 @@ function render(ctx) {
 
   const right = body.addStack();
   right.layoutVertically();
-  right.spacing = 6;
+  right.spacing = 4;
 
   addMetricRow(right, "thermometer.medium", `体感 ${fmtTemp(weather.feelsLike)}`);
   addMetricRow(right, "arrow.up.arrow.down", `${fmtTemp(weather.tempMax)} / ${fmtTemp(weather.tempMin)}`);
   addMetricRow(right, "umbrella.fill", `降雨 ${fmtPercent(weather.rainChance)}`);
+
+  // --- 底部：温度 + 降雨概率 双细线时间轴 ---
+  // 旧版缓存的 weather.json 没有 hourly 数组，这里守卫一下，跳过绘制而不是崩掉
+  if (
+    Array.isArray(weather.hourlyTemp) && weather.hourlyTemp.length >= 2 &&
+    Array.isArray(weather.hourlyProb) && weather.hourlyProb.length >= 2
+  ) {
+    w.addSpacer(6);
+    const nowPos = currentDayFraction(Date.now(), weather.utcOffsetSeconds || 0);
+    const chartImg = buildTimelineImage(weather.hourlyTemp, weather.hourlyProb, nowPos);
+    const imgEl = w.addImage(chartImg);
+    imgEl.imageSize = new Size(CHART_W, CHART_H);
+    imgEl.centerAlignImage();
+  }
 
   if (notice) {
     w.addSpacer(4);
